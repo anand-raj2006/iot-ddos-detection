@@ -1,14 +1,5 @@
-# Ignore saved machine learning models
-*.pkl
-model.pkl
-
-# Ignore dataset files
+# Ignore all CSV files
 *.csv
-/train/
-/test/
-/val/
-archive/
 
-# Ignore Python cache
-__pycache__/
-*.pyc
+# Ignore all Parquet files
+*.parquet
