@@ -2,32 +2,26 @@ from flask import Flask, request, jsonify
 import joblib
 import pandas as pd
 
-# Step 4: Create Flask app
 app = Flask(__name__)
 
-# Step 5: Load the trained model
-# (This happens once when the server starts, making predictions faster)
+# Load trained model once at startup
 try:
     model = joblib.load("model.pkl")
     print("✅ Model loaded successfully.")
 except Exception as e:
+    model = None
     print(f"❌ Error loading model: {e}")
 
-# Step 6: Define the exact feature list used during training
+# Exact 36-feature order used in training
 FEATURES = [
-    "flow_duration",
-    "Header_Length",
-    "Protocol Type",
-    "Rate",
-    "Srate",
-    "ack_count",
-    "syn_count",
-    "rst_count",
-    "Tot size",
-    "IAT"
+    "IAT", "Min", "Magnitue", "fin_flag_number", "psh_flag_number", "syn_flag_number",
+    "Tot sum", "Protocol Type", "ICMP", "Header_Length", "rst_count", "Radius",
+    "fin_count", "syn_count", "flow_duration", "Srate", "Number", "AVG", "Rate",
+    "Variance", "HTTPS", "urg_count", "Duration", "Weight", "HTTP", "Max", "Tot size",
+    "Covariance", "ack_count", "Std", "rst_flag_number", "UDP", "ack_flag_number",
+    "SSH", "TCP", "LLC"
 ]
 
-# Step 7: Create a simple "/" route for testing
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
@@ -35,18 +29,17 @@ def home():
         "status": "active"
     })
 
-# Step 8: Create the "/predict" POST route
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
-        # Get JSON data from the user's request
-        data = request.get_json()
+        if model is None:
+            return jsonify({"error": "Model not loaded"}), 500
 
-        # Error Handling: Check if no data was sent
+        data = request.get_json()
         if not data:
             return jsonify({"error": "No input data provided"}), 400
 
-        # Error Handling: Check for missing features
+        # Ensure all required 36 features are present
         missing_features = [feat for feat in FEATURES if feat not in data]
         if missing_features:
             return jsonify({
@@ -54,23 +47,27 @@ def predict():
                 "missing": missing_features
             }), 400
 
-        # Format data into a dictionary, ensuring the order matches FEATURES
+        # Build input in exact training order
         input_dict = {feat: [data[feat]] for feat in FEATURES}
-        
-        # Convert to Pandas DataFrame (required by scikit-learn models)
         input_df = pd.DataFrame(input_dict)
 
-        # Make the prediction
-        prediction_array = model.predict(input_df)
+        # Force numeric conversion (safe for model inference)
+        input_df = input_df.apply(pd.to_numeric, errors="coerce")
+
+        # Check invalid numeric values
+        if input_df.isnull().any().any():
+            bad_cols = input_df.columns[input_df.isnull().any()].tolist()
+            return jsonify({
+                "error": "Some features are non-numeric or invalid",
+                "invalid_features": bad_cols
+            }), 400
+
+        prediction_array = model.predict(input_df)  # expected shape (1,)
         prediction_value = int(prediction_array[0])
 
-        # Map the numeric output to a human-readable string
-        if prediction_value == 0:
-            result_text = "Normal"
-        else:
-            result_text = "Attack"
+        # Backend mapping requirement: 1=Attack, 0=Normal
+        result_text = "Attack" if prediction_value == 1 else "Normal"
 
-        # Return the JSON response
         return jsonify({
             "prediction_code": prediction_value,
             "prediction_label": result_text,
@@ -81,5 +78,4 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    # Run the Flask server
     app.run(debug=True, host="0.0.0.0", port=5000)
